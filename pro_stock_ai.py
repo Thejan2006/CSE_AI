@@ -14,6 +14,8 @@ class CSEProAnalyzer:
     def __init__(self, symbol):
         self.symbol = symbol
         self.data = yf.download(symbol, period="3y", interval="1d")
+        if self.data.empty:
+                raise ValueError(f"No data found for symbol {symbol}")
 
     def technical_analysis(self):
         df = self.data
