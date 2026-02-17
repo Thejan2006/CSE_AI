@@ -46,7 +46,8 @@ class CSEProAnalyzer:
         X, y = [], []
         for i in range(60, len(scaled)):
             X.append(scaled[i-60:i])
-            y.append(saled[i])
+            y.append(scaled[i])
+
 
         X, y = np.array(X), np.array(y)
 
