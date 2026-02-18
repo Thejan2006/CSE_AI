@@ -35,7 +35,7 @@ from keras.layers import LSTM, Dense, Dropout
 #    You can change SYMBOL to any Yahoo Finance ticker:
 #      "TSLA", "MSFT", "GOOGL", "AMZN", "NVDA", etc.
 # ---------------------------------------------------------------
-SYMBOL     = "AAPL"   # <-- change this to your preferred stock
+SYMBOL     = "AFS.N0000"   # <-- change this to your preferred stock
 START_DATE = "2015-01-01"
 END_DATE   = "2025-01-01"
 LOOK_BACK  = 60            # number of past days used for each prediction
