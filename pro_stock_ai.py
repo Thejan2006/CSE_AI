@@ -1,98 +1,98 @@
+# Import libraries
 import yfinance as yf
-import pandas as pd
 import numpy as np
-import ta
-from sklearn.ensemble import RandomForestRegressor
+import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
-import warnings
-warnings.filterwarnings("ignore")
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 
-class CSEProAnalyzer:
+# ------------------------------
+# 1) Get stock data using API
+# ------------------------------
+symbol = "AAPL"  # ඔබට වෙනස් කරන්න පුළුවන් (උදා: "TSLA", "MSFT", "GOOGL")
+start_date = "2015-01-01"
+end_date   = "2025-01-01"
 
-    def __init__(self, symbol):
-        self.symbol = symbol
-        self.data = yf.download(symbol, period="3y", interval="1d")
-        if self.data.empty:
-                raise ValueError(f"No data found for symbol {symbol}")
+# Download historical stock data
+df = yf.download(symbol, start=start_date, end=end_date)
+print(f"Data fetched: {df.shape} rows")
+print(df.head())
 
-    def technical_analysis(self):
-        df = self.data
-        df['RSI'] = ta.momentum.rsi(df['Close'], 14)
-        df['SMA_50'] = ta.trend.sma_indicator(df['Close'], 50)
-        df['SMA_200'] = ta.trend.sma_indicator(df['Close'], 200)
-        df['MACD'] = ta.trend.macd(df['Close'])
-        df['BB_HIGH'] = ta.volatility.bollinger_hband(df['Close'])
-        df['BB_LOW'] = ta.volatility.bollinger_lband(df['Close'])
-        df.dropna(inplace=True)
-        self.data = df
-        return df
+# ------------------------------
+# 2) Preprocess data (scale)
+# ------------------------------
+close_prices = df["Close"].values.reshape(-1, 1)
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(close_prices)
 
-    def random_forest_prediction(self):
-        df = self.data.copy()
-        X = df[['RSI','SMA_50','SMA_200','MACD']]
-        y = df['Close']
+# ------------------------------
+# 3) Create training sequences
+# ------------------------------
+def create_dataset(dataset, look_back=60):
+    X, y = [], []
+    for i in range(len(dataset) - look_back):
+        X.append(dataset[i:i+look_back])
+        y.append(dataset[i+look_back])
+    return np.array(X), np.array(y)
 
-        model = RandomForestRegressor(n_estimators=200)
-        model.fit(X[:-30], y[:-30])
+look_back = 60
+X, y = create_dataset(scaled_data, look_back)
+X = X.reshape(X.shape[0], X.shape[1], 1)
 
-        prediction = model.predict(X[-1:].values)
-        return prediction[0]
+# ------------------------------
+# 4) Build LSTM model
+# ------------------------------
+model = Sequential()
+model.add(LSTM(50, return_sequences=True, input_shape=(look_back,1)))
+model.add(Dropout(0.2))
+model.add(LSTM(50, return_sequences=False))
+model.add(Dropout(0.2))
+model.add(Dense(25))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mean_squared_error')
 
-    def lstm_prediction(self):
-        df = self.data.copy()
-        scaler = MinMaxScaler()
-        scaled = scaler.fit_transform(df[['Close']])
+# ------------------------------
+# 5) Train model
+# ------------------------------
+print("Training model...please wait")
+model.fit(X, y, batch_size=32, epochs=20)
 
-        X, y = [], []
-        for i in range(60, len(scaled)):
-            X.append(scaled[i-60:i])
-            y.append(scaled[i])
+# ------------------------------
+# 6) Predict next 30 days
+# ------------------------------
+test_data = scaled_data[-look_back:]
+test_input = test_data.reshape(1, look_back, 1)
+predictions = []
+current_input = test_input
 
+for _ in range(30):
+    pred = model.predict(current_input, verbose=0)[0]
+    predictions.append(pred)
+    current_input = np.append(current_input[:, 1:, :], [[pred]], axis=1)
 
-        X, y = np.array(X), np.array(y)
+pred_prices = scaler.inverse_transform(np.array(predictions).reshape(-1,1))
 
-        model = Sequential()
-        model.add(LSTM(50, return_sequences=False, input_shape=(X.shape[1],1)))
-        model.add(Dense(1))
-        model.compile(optimizer='adam', loss='mse')
-        model.fit(X, y, epochs=5, batch_size=32, verbose=0)
+# ------------------------------
+# 7) Plot historical + predicted prices
+# ------------------------------
+plt.figure(figsize=(12,6))
+plt.plot(df.index, df["Close"], label="Historical Close")
+future_dates = pd.date_range(df.index[-1], periods=31, freq="B")[1:]
+plt.plot(future_dates, pred_prices, label="Predicted Prices")
+plt.title(f"{symbol} Stock Price Prediction")
+plt.xlabel("Date")
+plt.ylabel("Price")
+plt.legend()
+plt.grid(True)
+plt.show()
 
-        last_60 = scaled[-60:]
-        last_60 = np.reshape(last_60,(1,60,1))
-        pred = model.predict(last_60)
-        return scaler.inverse_transform(pred)[0][0]
-
-    def risk_score(self):
-        df = self.data
-        volatility = df['Close'].pct_change().std()
-        if volatility < 0.02:
-            return "LOW RISK"
-        elif volatility < 0.05:
-            return "MEDIUM RISK"
-        else:
-            return "HIGH RISK"
-
-    def full_report(self):
-        self.technical_analysis()
-        rf_pred = self.random_forest_prediction()
-        lstm_pred = self.lstm_prediction()
-        risk = self.risk_score()
-
-        current_price = self.data['Close'].iloc[-1]
-        avg_pred = (rf_pred + lstm_pred)/2
-
-        print(f"\nStock: {self.symbol}")
-        print(f"Current Price: {current_price}")
-        print(f"AI Predicted Price: {avg_pred}")
-        print(f"Risk Level: {risk}")
-
-        if avg_pred > current_price:
-            print("Signal: BUY Probability High")
-        else:
-            print("Signal: SELL / WAIT")
-
-# Usage
-analyzer = CSEProAnalyzer("BIL.N0000")
-analyzer.full_report()
+# ------------------------------
+# 8) Save predictions to CSV
+# ------------------------------
+output = pd.DataFrame({
+    "Date": future_dates,
+    "Predicted_Close": pred_prices.flatten()
+})
+output.to_csv(f"{symbol}_predictions.csv", index=False)
+print(f"Saved predictions to {symbol}_predictions.csv")
