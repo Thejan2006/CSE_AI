@@ -1,102 +1,130 @@
-#comment is work
-
-
-
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import ta
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
-import warnings
-warnings.filterwarnings("ignore")
+import requests
+from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
 
-class CSEProAnalyzer:
+st.title("🇱🇰 CSE AI PRO ULTIMATE")
 
-    def __init__(self, symbol):
-        self.symbol = symbol
-        self.data = yf.download(symbol, period="3y", interval="1d")
-        if self.data.empty:
-                raise ValueError(f"No data found for symbol {symbol}")
+# --------------------------------
+# SETTINGS
+# --------------------------------
+STOCK_LIST = ["JKH.CM", "SAMP.CM", "COMB.CM", "HAYL.CM", "LOLC.CM"]
 
-    def technical_analysis(self):
-        df = self.data
-        df['RSI'] = ta.momentum.rsi(df['Close'], 14)
-        df['SMA_50'] = ta.trend.sma_indicator(df['Close'], 50)
-        df['SMA_200'] = ta.trend.sma_indicator(df['Close'], 200)
-        df['MACD'] = ta.trend.macd(df['Close'])
-        df['BB_HIGH'] = ta.volatility.bollinger_hband(df['Close'])
-        df['BB_LOW'] = ta.volatility.bollinger_lband(df['Close'])
-        df.dropna(inplace=True)
-        self.data = df
-        return df
+# --------------------------------
+# GET YAHOO DATA
+# --------------------------------
+def get_data(symbol):
+    try:
+        data = yf.download(symbol, period="6mo", interval="1d")
+        return data
+    except:
+        return None
 
-    def random_forest_prediction(self):
-        df = self.data.copy()
-        X = df[['RSI','SMA_50','SMA_200','MACD']]
-        y = df['Close']
+# --------------------------------
+# RSI
+# --------------------------------
+def calculate_rsi(data, period=14):
+    delta = data['Close'].diff()
+    gain = delta.where(delta > 0, 0).rolling(period).mean()
+    loss = -delta.where(delta < 0, 0).rolling(period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-        model = RandomForestRegressor(n_estimators=200)
-        model.fit(X[:-30], y[:-30])
+# --------------------------------
+# AI PREDICTION
+# --------------------------------
+def predict_price(data):
+    data = data.dropna()
+    data['Day'] = np.arange(len(data))
+    X = data[['Day']]
+    y = data['Close']
 
-        prediction = model.predict(X[-1:].values)
-        return prediction[0]
+    model = LinearRegression()
+    model.fit(X, y)
 
-    def lstm_prediction(self):
-        df = self.data.copy()
-        scaler = MinMaxScaler()
-        scaled = scaler.fit_transform(df[['Close']])
+    future_day = [[len(data) + 5]]
+    prediction = model.predict(future_day)
+    return prediction[0]
 
-        X, y = [], []
-        for i in range(60, len(scaled)):
-            X.append(scaled[i-60:i])
-            y.append(scaled[i])
+# --------------------------------
+# CSE LIVE PRICE (API)
+# --------------------------------
+def get_live_price(symbol):
+    try:
+        base = symbol.replace(".CM", "")
+        url = f"https://www.cse.lk/api/market-data/{base}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("lastTradedPrice", "N/A")
+        return "N/A"
+    except:
+        return "N/A"
 
+# --------------------------------
+# SINGLE STOCK VIEW
+# --------------------------------
+symbol = st.text_input("Enter CSE Symbol (Example: JKH.CM)")
 
-        X, y = np.array(X), np.array(y)
+if symbol:
+    data = get_data(symbol)
 
-        model = Sequential()
-        model.add(LSTM(50, return_sequences=False, input_shape=(X.shape[1],1)))
-        model.add(Dense(1))
-        model.compile(optimizer='adam', loss='mse')
-        model.fit(X, y, epochs=5, batch_size=32, verbose=0)
+    if data is None or data.empty:
+        st.error("No Data Found ❌")
+    else:
+        data['MA20'] = data['Close'].rolling(20).mean()
+        data['RSI'] = calculate_rsi(data)
 
-        last_60 = scaled[-60:]
-        last_60 = np.reshape(last_60,(1,60,1))
-        pred = model.predict(last_60)
-        return scaler.inverse_transform(pred)[0][0]
+        st.subheader("📈 Price + MA")
+        st.line_chart(data[['Close','MA20']])
 
-    def risk_score(self):
-        df = self.data
-        volatility = df['Close'].pct_change().std()
-        if volatility < 0.02:
-            return "LOW RISK"
-        elif volatility < 0.05:
-            return "MEDIUM RISK"
+        st.subheader("📊 RSI")
+        st.line_chart(data['RSI'])
+
+        latest_rsi = round(data['RSI'].iloc[-1],2)
+        st.write("Latest RSI:", latest_rsi)
+
+        if latest_rsi < 30:
+            st.success("OVERSOLD (Buy Signal)")
+        elif latest_rsi > 70:
+            st.warning("OVERBOUGHT (Sell Signal)")
         else:
-            return "HIGH RISK"
+            st.info("Neutral Zone")
 
-    def full_report(self):
-        self.technical_analysis()
-        rf_pred = self.random_forest_prediction()
-        lstm_pred = self.lstm_prediction()
-        risk = self.risk_score()
+        # AI Prediction
+        predicted_price = predict_price(data)
+        st.subheader("🤖 AI 5-Day Future Prediction")
+        st.write("Predicted Price:", round(predicted_price,2))
 
-        current_price = self.data['Close'].iloc[-1]
-        avg_pred = (rf_pred + lstm_pred)/2
+        # Live Price
+        live_price = get_live_price(symbol)
+        st.subheader("📡 CSE Live Price")
+        st.write("Live Price:", live_price)
 
-        print(f"\nStock: {self.symbol}")
-        print(f"Current Price: {current_price}")
-        print(f"AI Predicted Price: {avg_pred}")
-        print(f"Risk Level: {risk}")
+# --------------------------------
+# MULTI STOCK SCANNER
+# --------------------------------
+st.subheader("🔥 Multi Stock Scanner")
 
-        if avg_pred > current_price:
-            print("Signal: BUY Probability High")
-        else:
-            print("Signal: SELL / WAIT")
+scan_results = []
 
-# Usage
-analyzer = CSEProAnalyzer("BIL.N0000")
-analyzer.full_report()
+for stock in STOCK_LIST:
+    data = get_data(stock)
+    if data is not None and not data.empty:
+        data['RSI'] = calculate_rsi(data)
+        latest_rsi = data['RSI'].iloc[-1]
+
+        if latest_rsi < 35:
+            scan_results.append((stock, "Oversold"))
+
+        elif latest_rsi > 65:
+            scan_results.append((stock, "Overbought"))
+
+if scan_results:
+    for stock, signal in scan_results:
+        st.write(stock, "→", signal)
+else:
+    st.write("No Strong Signals Found")
