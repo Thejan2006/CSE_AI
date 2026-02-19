@@ -139,3 +139,4 @@ if scan_results:
         st.write(stock, "→", signal)
 else:
     st.write("No Strong Signals Found")
+# try to test branch mergeing workin or not 
