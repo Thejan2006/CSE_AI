@@ -128,4 +128,3 @@ if scan_results:
         st.write(stock, "→", signal)
 else:
     st.write("No Strong Signals Found")
-# i think barch merigging is work 
