@@ -128,3 +128,32 @@ if scan_results:
         st.write(stock, "→", signal)
 else:
     st.write("No Strong Signals Found")
+
+
+
+
+# data_list.append({
+# "PDF": filename,
+# "Income": income,
+# "Expense": expense,
+# "Profit": profit
+# })
+
+# # ---------- CHART ----------
+# try:
+# plt.figure(figsize=(6,4))
+# plt.bar(["Income","Expense","Profit"], [income, expense, profit], color=['green','red','blue'])
+# chart_path = os.path.join(charts_folder, filename.replace(".pdf",".png"))
+# plt.savefig(chart_path)
+# plt.close()
+# print("Chart saved:", chart_path)
+# except Exception as e:
+# print("Chart failed:", e)
+
+# # ---------- SAVE TO EXCEL ----------
+# try:
+# df = pd.DataFrame(data_list)
+# df.to_excel(output_excel, index=False, engine="openpyxl")
+# print("Excel saved:", output_excel)
+# except Exception as e:
+# print("Excel save failed:", e)
