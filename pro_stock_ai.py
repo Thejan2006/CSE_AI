@@ -1,3 +1,13 @@
+# -----------------------------------------
+# PDF Financial Analyzer + Charts + Signals
+# -----------------------------------------
+
+import os
+import pdfplumber
+import pandas as pd
+import re
+import matplotlib.pyplot as plt
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
