@@ -1,107 +1,131 @@
-# pro_stock_ai.py
-
 import streamlit as st
 import yfinance as yf
-import numpy as np
 import pandas as pd
-import ta
-from sklearn.ensemble import RandomForestRegressor
+import numpy as np
+import requests
+from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 
-st.set_page_config(layout="wide")
-st.title("🇱🇰 PRO Sri Lankan AI Trading System")
+st.title("🇱🇰 CSE AI PRO ULTIMATE")
 
-# -------------------------
-# USER INPUT
-# -------------------------
-symbol = st.text_input("Enter CSE Stock (ex: NABIL.N0000)", "NABIL.N0000")
-start = st.date_input("Start Date", pd.to_datetime("2022-01-01"))
-end   = st.date_input("End Date", pd.to_datetime("today"))
+# --------------------------------
+# SETTINGS
+# --------------------------------
+STOCK_LIST = ["JKH.CM", "SAMP.CM", "COMB.CM", "HAYL.CM", "LOLC.CM"]
 
-if st.button("Run PRO Analysis"):
+# --------------------------------
+# GET YAHOO DATA
+# --------------------------------
+def get_data(symbol):
+    try:
+        data = yf.download(symbol, period="6mo", interval="1d")
+        return data
+    except:
+        return None
 
-    df = yf.download(symbol, start=start, end=end)
+# --------------------------------
+# RSI
+# --------------------------------
+def calculate_rsi(data, period=14):
+    delta = data['Close'].diff()
+    gain = delta.where(delta > 0, 0).rolling(period).mean()
+    loss = -delta.where(delta < 0, 0).rolling(period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-    if df.empty:
-        st.error("No Data Found. Check Symbol.")
-        st.stop()
+# --------------------------------
+# AI PREDICTION
+# --------------------------------
+def predict_price(data):
+    data = data.dropna()
+    data['Day'] = np.arange(len(data))
+    X = data[['Day']]
+    y = data['Close']
 
-    # -------------------------
-    # Technical Indicators
-    # -------------------------
-    df["SMA_50"] = ta.trend.sma_indicator(df["Close"], window=50)
-    df["EMA_20"] = ta.trend.ema_indicator(df["Close"], window=20)
-    df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
-
-    # -------------------------
-    # AI Prediction
-    # -------------------------
-    df["Day"] = np.arange(len(df))
-    X = df[["Day"]]
-    y = df["Close"]
-
-    model = RandomForestRegressor(n_estimators=300)
+    model = LinearRegression()
     model.fit(X, y)
 
-    future_days = np.arange(len(df), len(df)+30).reshape(-1,1)
-    predictions = model.predict(future_days)
+    future_day = [[len(data) + 5]]
+    prediction = model.predict(future_day)
+    return prediction[0]
 
-    future_dates = pd.date_range(df.index[-1], periods=31, freq="B")[1:]
-    future_df = pd.DataFrame({
-        "Date": future_dates,
-        "Predicted_Close": predictions
-    }).set_index("Date")
+# --------------------------------
+# CSE LIVE PRICE (API)
+# --------------------------------
+def get_live_price(symbol):
+    try:
+        base = symbol.replace(".CM", "")
+        url = f"https://www.cse.lk/api/market-data/{base}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("lastTradedPrice", "N/A")
+        return "N/A"
+    except:
+        return "N/A"
 
-    # -------------------------
-    # Signal Engine
-    # -------------------------
-    latest_rsi = df["RSI"].iloc[-1]
-    latest_price = df["Close"].iloc[-1]
-    latest_ema = df["EMA_20"].iloc[-1]
+# --------------------------------
+# SINGLE STOCK VIEW
+# --------------------------------
+symbol = st.text_input("Enter CSE Symbol (Example: JKH.CM)")
 
-    signal = "HOLD"
+if symbol:
+    data = get_data(symbol)
 
-    if latest_rsi < 30 and latest_price > latest_ema:
-        signal = "BUY ✅"
-    elif latest_rsi > 70:
-        signal = "SELL 🔻"
+    if data is None or data.empty:
+        st.error("No Data Found ❌")
+    else:
+        data['MA20'] = data['Close'].rolling(20).mean()
+        data['RSI'] = calculate_rsi(data)
 
-    # -------------------------
-    # Risk Management
-    # -------------------------
-    stop_loss = latest_price * 0.95
-    take_profit = latest_price * 1.10
+        st.subheader("📈 Price + MA")
+        st.line_chart(data[['Close','MA20']])
 
-    # -------------------------
-    # DASHBOARD DISPLAY
-    # -------------------------
+        st.subheader("📊 RSI")
+        st.line_chart(data['RSI'])
 
-    col1, col2, col3 = st.columns(3)
+        latest_rsi = round(data['RSI'].iloc[-1],2)
+        st.write("Latest RSI:", latest_rsi)
 
-    col1.metric("Current Price", f"LKR {latest_price:.2f}")
-    col2.metric("RSI (14)", f"{latest_rsi:.2f}")
-    col3.metric("Signal", signal)
+        if latest_rsi < 30:
+            st.success("OVERSOLD (Buy Signal)")
+        elif latest_rsi > 70:
+            st.warning("OVERBOUGHT (Sell Signal)")
+        else:
+            st.info("Neutral Zone")
 
-    st.subheader("Technical Chart")
+        # AI Prediction
+        predicted_price = predict_price(data)
+        st.subheader("🤖 AI 5-Day Future Prediction")
+        st.write("Predicted Price:", round(predicted_price,2))
 
-    fig, ax = plt.subplots(figsize=(12,6))
-    ax.plot(df.index, df["Close"], label="Close")
-    ax.plot(df.index, df["SMA_50"], label="SMA 50")
-    ax.plot(df.index, df["EMA_20"], label="EMA 20")
-    ax.legend()
-    st.pyplot(fig)
+        # Live Price
+        live_price = get_live_price(symbol)
+        st.subheader("📡 CSE Live Price")
+        st.write("Live Price:", live_price)
 
-    st.subheader("AI Predicted Next 30 Days")
-    st.line_chart(future_df["Predicted_Close"])
+# --------------------------------
+# MULTI STOCK SCANNER
+# --------------------------------
+st.subheader("🔥 Multi Stock Scanner")
 
-    st.subheader("Risk Management")
-    st.write(f"📉 Stop Loss: LKR {stop_loss:.2f}")
-    st.write(f"🎯 Take Profit: LKR {take_profit:.2f}")
+scan_results = []
 
-    st.download_button(
-        "Download Prediction CSV",
-        future_df.to_csv().encode("utf-8"),
-        file_name=f"{symbol}_prediction.csv"
-    )
+for stock in STOCK_LIST:
+    data = get_data(stock)
+    if data is not None and not data.empty:
+        data['RSI'] = calculate_rsi(data)
+        latest_rsi = data['RSI'].iloc[-1]
 
-    st.success("Professional Analysis Completed 🚀")
+        if latest_rsi < 35:
+            scan_results.append((stock, "Oversold"))
+
+        elif latest_rsi > 65:
+            scan_results.append((stock, "Overbought"))
+
+if scan_results:
+    for stock, signal in scan_results:
+        st.write(stock, "→", signal)
+else:
+    st.write("No Strong Signals Found")
